@@ -3,44 +3,131 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { QrCode, Camera, Circle, Phone, MessageCircle } from "lucide-react";
+import { QrCode, Camera, Circle, Phone, MessageCircle, Loader } from "lucide-react";
 import { useState, useEffect } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { io, Socket } from "socket.io-client";
 
 const QRCodeScanner = () => {
   const { toast } = useToast();
   const [pairingCode, setPairingCode] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
-  const [isGeneratingQR, setIsGeneratingQR] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [generatedPairingCode, setGeneratedPairingCode] = useState("");
+  const [qrCodeUrl, setQrCodeUrl] = useState("");
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [userInfo, setUserInfo] = useState<{ name: string; phone: string } | null>(null);
+  const [socket, setSocket] = useState<Socket | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState("Connecting to server...");
 
-  // Simulate QR code generation
+  // Initialize WebSocket connection
   useEffect(() => {
-    if (isGeneratingQR) {
-      const timer = setTimeout(() => {
-        setIsGeneratingQR(false);
-      }, 1500); // Quick generation (1.5s)
-      
-      return () => clearTimeout(timer);
-    }
-  }, [isGeneratingQR]);
+    // Connect to the WebSocket server
+    const newSocket = io("http://localhost:8000");
+    setSocket(newSocket);
 
-  // Handle phone number submission
+    // Socket event listeners
+    newSocket.on("connect", () => {
+      setConnectionStatus("Connected to server");
+      console.log("Connected to WebSocket server");
+    });
+
+    newSocket.on("disconnect", () => {
+      setConnectionStatus("Disconnected from server");
+      console.log("Disconnected from WebSocket server");
+    });
+
+    newSocket.on("qr", (data) => {
+      setQrCodeUrl(data.url);
+      setIsLoading(false);
+      toast({
+        title: "QR Code Generated",
+        description: "Scan this QR code with your WhatsApp to connect",
+      });
+    });
+
+    newSocket.on("pairingCode", (data) => {
+      setGeneratedPairingCode(data.code);
+      setIsDialogOpen(true);
+      setIsLoading(false);
+      toast({
+        title: "Code Generated",
+        description: "Enter this code in your WhatsApp to connect",
+      });
+    });
+
+    newSocket.on("ready", (data) => {
+      setIsAuthenticated(true);
+      setUserInfo(data);
+      setIsLoading(false);
+      setIsDialogOpen(false);
+      toast({
+        title: "Connected!",
+        description: `WhatsApp connected for ${data.name}`,
+      });
+    });
+
+    newSocket.on("authenticated", () => {
+      toast({
+        title: "Authenticated",
+        description: "WhatsApp authentication successful",
+      });
+    });
+
+    newSocket.on("auth_failure", (data) => {
+      setIsLoading(false);
+      toast({
+        title: "Authentication Failed",
+        description: data.message,
+        variant: "destructive",
+      });
+    });
+
+    newSocket.on("error", (data) => {
+      setIsLoading(false);
+      toast({
+        title: "Error",
+        description: data.message,
+        variant: "destructive",
+      });
+    });
+
+    // Clean up the socket connection when the component unmounts
+    return () => {
+      newSocket.disconnect();
+    };
+  }, [toast]);
+
+  // Request new QR code
+  const handleRefreshQR = () => {
+    setIsLoading(true);
+    setQrCodeUrl("");
+    
+    // The server will automatically emit a new QR code when this happens
+    if (socket) {
+      socket.emit("requestQr");
+    }
+  };
+
+  // Handle phone number submission for pairing code
   const handlePhoneSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
     if (phoneNumber.length >= 10) {
-      // Generate a random 8-digit pairing code
-      const randomCode = Math.floor(10000000 + Math.random() * 90000000).toString();
-      setGeneratedPairingCode(randomCode);
-      setIsDialogOpen(true);
+      setIsLoading(true);
       
-      toast({
-        title: "Code Sent",
-        description: "Pairing code has been sent to your WhatsApp",
-      });
+      if (socket) {
+        socket.emit("requestPairingCode", { phoneNumber });
+      } else {
+        setIsLoading(false);
+        toast({
+          title: "Connection Error",
+          description: "Not connected to server",
+          variant: "destructive",
+        });
+      }
     } else {
       toast({
         title: "Invalid Phone Number",
@@ -55,17 +142,9 @@ const QRCodeScanner = () => {
     e.preventDefault();
     if (pairingCode.length === 8) {
       toast({
-        title: "Connecting...",
-        description: "Please wait while we connect your WhatsApp...",
+        title: "Manual Pairing",
+        description: "Enter this code in your WhatsApp application",
       });
-      
-      // Simulate successful connection
-      setTimeout(() => {
-        toast({
-          title: "Connected!",
-          description: "Your WhatsApp is now connected to FY'S Investment Bot",
-        });
-      }, 2000);
     } else {
       toast({
         title: "Invalid Code",
@@ -74,6 +153,38 @@ const QRCodeScanner = () => {
       });
     }
   };
+
+  // If already authenticated, show user info
+  if (isAuthenticated && userInfo) {
+    return (
+      <Card className="w-full max-w-md p-6 shadow-lg bg-white/90 backdrop-blur-sm">
+        <div className="space-y-6">
+          <div className="flex items-center justify-center text-green-500">
+            <MessageCircle className="h-12 w-12" />
+          </div>
+          
+          <h2 className="text-2xl font-semibold text-center">WhatsApp Connected</h2>
+          
+          <div className="space-y-2 text-center">
+            <p className="font-medium">{userInfo.name}</p>
+            <p className="text-muted-foreground">{userInfo.phone}</p>
+          </div>
+          
+          <Button 
+            variant="outline"
+            className="w-full"
+            onClick={() => {
+              if (socket) socket.emit("logout");
+              setIsAuthenticated(false);
+              setUserInfo(null);
+            }}
+          >
+            Disconnect
+          </Button>
+        </div>
+      </Card>
+    );
+  }
 
   return (
     <>
@@ -84,6 +195,7 @@ const QRCodeScanner = () => {
           </div>
           
           <h2 className="text-2xl font-semibold text-center">FY'S Investment Bot</h2>
+          <p className="text-center text-sm text-muted-foreground">{connectionStatus}</p>
           
           <Tabs defaultValue="qr" className="w-full">
             <TabsList className="grid w-full grid-cols-2">
@@ -93,43 +205,48 @@ const QRCodeScanner = () => {
             
             <TabsContent value="qr" className="space-y-4">
               <div className="relative aspect-square bg-black/5 rounded-lg overflow-hidden">
-                {isGeneratingQR ? (
+                {isLoading ? (
                   <div className="absolute inset-0 flex flex-col items-center justify-center space-y-2">
-                    <Circle className="h-10 w-10 text-primary animate-pulse" />
-                    <p className="text-sm animate-pulse">Generating QR code...</p>
+                    <Loader className="h-10 w-10 text-primary animate-spin" />
+                    <p className="text-sm">Generating QR code...</p>
+                  </div>
+                ) : qrCodeUrl ? (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <img 
+                      src={qrCodeUrl} 
+                      alt="WhatsApp QR Code" 
+                      className="max-w-full max-h-full p-4"
+                    />
                   </div>
                 ) : (
-                  <>
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <Camera className="h-16 w-16 text-muted-foreground/50" />
-                    </div>
-                    <div className="absolute inset-12 border-2 border-dashed border-primary/50 rounded-lg flex items-center justify-center">
-                      <div className="w-3/4 h-3/4 bg-white p-2 rounded shadow-md grid grid-cols-3 grid-rows-3 gap-1">
-                        {Array.from({ length: 9 }).map((_, i) => (
-                          <div key={i} className={`bg-black ${i === 4 ? "bg-white" : ""}`}></div>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
-                      <Circle className="h-6 w-6 text-primary animate-pulse" />
-                    </div>
-                  </>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center space-y-4">
+                    <Camera className="h-16 w-16 text-muted-foreground/50" />
+                    <Button 
+                      variant="default" 
+                      onClick={handleRefreshQR}
+                    >
+                      Generate QR Code
+                    </Button>
+                  </div>
                 )}
               </div>
               
-              <div className="flex flex-col items-center space-y-2">
-                <p className="text-center text-sm text-muted-foreground">
-                  Scan this QR code with your WhatsApp to connect
-                </p>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={() => setIsGeneratingQR(true)}
-                  className="text-xs"
-                >
-                  Refresh QR Code
-                </Button>
-              </div>
+              {qrCodeUrl && (
+                <div className="flex flex-col items-center space-y-2">
+                  <p className="text-center text-sm text-muted-foreground">
+                    Scan this QR code with your WhatsApp to connect
+                  </p>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={handleRefreshQR}
+                    className="text-xs"
+                    disabled={isLoading}
+                  >
+                    {isLoading ? 'Generating...' : 'Refresh QR Code'}
+                  </Button>
+                </div>
+              )}
             </TabsContent>
             
             <TabsContent value="phone" className="space-y-4">
@@ -153,8 +270,19 @@ const QRCodeScanner = () => {
                   </div>
                 </div>
                 
-                <Button type="submit" className="w-full" disabled={phoneNumber.length < 10}>
-                  Send Pairing Code
+                <Button 
+                  type="submit" 
+                  className="w-full" 
+                  disabled={phoneNumber.length < 10 || isLoading}
+                >
+                  {isLoading ? (
+                    <>
+                      <Loader className="mr-2 h-4 w-4 animate-spin" />
+                      Sending...
+                    </>
+                  ) : (
+                    'Send Pairing Code'
+                  )}
                 </Button>
                 
                 <p className="text-center text-sm text-muted-foreground">
@@ -176,7 +304,7 @@ const QRCodeScanner = () => {
                   onChange={(e) => setPairingCode(e.target.value.replace(/\D/g, '').slice(0, 8))}
                   maxLength={8}
                 />
-                <Button type="submit" disabled={pairingCode.length !== 8}>
+                <Button type="submit" disabled={pairingCode.length !== 8 || isLoading}>
                   Connect
                 </Button>
               </div>
@@ -205,8 +333,8 @@ const QRCodeScanner = () => {
             </div>
             
             <p className="text-sm text-center text-muted-foreground">
-              A message with this code has been sent to your WhatsApp. 
-              Please enter it within 60 seconds.
+              Open WhatsApp on your phone, go to Settings &gt; Linked Devices &gt; Link a Device, 
+              then enter this code within 60 seconds.
             </p>
           </div>
         </DialogContent>
