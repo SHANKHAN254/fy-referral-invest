@@ -16,7 +16,7 @@ const io = new Server(server, {
 
 app.use(express.json());
 
-// Create a WhatsApp client
+// Create a WhatsApp client with LocalAuth strategy
 const client = new Client({
   authStrategy: new LocalAuth(),
   puppeteer: {
@@ -85,6 +85,16 @@ client.on('auth_failure', (msg) => {
 client.on('disconnected', (reason) => {
   console.log('Client was disconnected:', reason);
   io.emit('disconnected', { reason });
+});
+
+// Message handling
+client.on('message', async (msg) => {
+  console.log('Message received:', msg.body);
+  
+  // Basic message reply example
+  if (msg.body.toLowerCase() === '!ping') {
+    msg.reply('pong');
+  }
 });
 
 // Initialize the WhatsApp client

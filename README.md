@@ -1,20 +1,24 @@
 
 # FY'S Investment Bot
 
-A WhatsApp connection system for the FY'S Investment Bot using whatsapp-web.js.
+A WhatsApp connection system using whatsapp-web.js with both frontend and backend components.
 
-## Setup Instructions
+## Prerequisites
 
-### Backend Setup (Required)
+- Node.js v18 or higher
+- npm or yarn package manager
+- A WhatsApp account
+
+## Installation
+
+### Backend Setup
 
 1. Install backend dependencies:
-
 ```bash
 npm install express socket.io whatsapp-web.js qrcode
 ```
 
 2. Start the backend server:
-
 ```bash
 node server.js
 ```
@@ -23,25 +27,67 @@ The server will run on port 8000 by default.
 
 ### Frontend Setup
 
-The frontend React application will connect to the backend server via WebSockets.
+1. Install frontend dependencies:
+```bash
+npm install
+```
 
-1. Start the frontend application:
-
+2. Start the frontend application:
 ```bash
 npm run dev
 ```
 
-## How It Works
+## Deployment Options
 
-This application uses whatsapp-web.js to connect to WhatsApp Web and provides two authentication methods:
+### 1. GitHub Codespaces
 
-1. QR Code scanning - Generates a QR code that can be scanned with your WhatsApp app
-2. Phone number pairing - Generates a pairing code that you can enter in your WhatsApp app
+1. Open the repository in GitHub Codespaces
+2. Run the backend:
+```bash
+cd backend
+npm install
+node server.js
+```
+3. In a new terminal, run the frontend:
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
-The backend server handles the WhatsApp Web session and communicates with the frontend via WebSockets.
+### 2. Render
+
+1. Create a new Web Service on Render
+2. Connect your GitHub repository
+3. Set build command: `npm install`
+4. Set start command: `node server.js`
+5. Add environment variables if needed
+
+### 3. Replit
+
+1. Create a new Repl, importing your GitHub repository
+2. In the Repl's Shell, install dependencies:
+```bash
+npm install
+```
+3. Click "Run" to start the application
+
+## Features
+
+- QR Code scanning for WhatsApp Web connection
+- Phone number pairing with code generation
+- Real-time connection status updates
+- Automatic session restoration
+- Message handling and auto-replies
+- Multiple authentication methods
 
 ## Important Notes
 
-- The WhatsApp Web session will be stored in a .wwebjs_auth folder in the backend server directory
+- The WhatsApp Web session will be stored in a .wwebjs_auth folder
 - The server must be running for the WhatsApp connection to work
 - You may need to scan the QR code or enter the pairing code again if your session expires
+- Make sure to handle the deployment environment's requirements (like Puppeteer dependencies)
+
+## License
+
+This project is licensed under the MIT License.
