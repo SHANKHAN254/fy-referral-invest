@@ -52,10 +52,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ socket }) => {
 
     if (!isTyping && e.target.value) {
       setIsTyping(true);
-      socket.emit('typing', { isTyping: true });
+      socket.emit('typing', { isTyping: true, userId: socket.id });
     } else if (isTyping && !e.target.value) {
       setIsTyping(false);
-      socket.emit('typing', { isTyping: false });
+      socket.emit('typing', { isTyping: false, userId: socket.id });
     }
   };
 
@@ -66,7 +66,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ socket }) => {
     socket.emit('message', { text: newMessage });
     setNewMessage('');
     setIsTyping(false);
-    socket.emit('typing', { isTyping: false });
+    socket.emit('typing', { isTyping: false, userId: socket.id });
   };
 
   return (

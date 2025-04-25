@@ -25,6 +25,7 @@ io.on('connection', (socket) => {
   socket.on('register', (userData) => {
     activeChats.set(socket.id, {
       ...userData,
+      id: socket.id,
       messages: [],
       isAdmin: false
     });
@@ -37,24 +38,46 @@ io.on('connection', (socket) => {
     socket.isAdmin = true;
     adminOnline = true;
     io.emit('adminStatus', { online: true });
+    
+    // Send the current user list to the newly logged in admin
+    io.to(socket.id).emit('updateUserList', Array.from(activeChats.values()));
   });
 
   // Handle messages
   socket.on('message', (message) => {
-    const user = activeChats.get(socket.id);
-    if (user || socket.isAdmin) {
+    const timestamp = new Date();
+    
+    if (socket.isAdmin && message.userId) {
+      // Admin sending message to specific user
       io.emit('message', {
         text: message.text,
-        isAdmin: socket.isAdmin,
+        isAdmin: true,
         userId: message.userId,
-        timestamp: new Date()
+        timestamp: timestamp
       });
+    } else {
+      // Regular user sending message
+      const user = activeChats.get(socket.id);
+      if (user) {
+        io.emit('message', {
+          text: message.text,
+          isAdmin: false,
+          userId: socket.id,
+          timestamp: timestamp
+        });
+      }
     }
   });
 
   // Handle typing status
-  socket.on('typing', ({ isTyping, userId }) => {
-    io.emit('userTyping', { isTyping, userId });
+  socket.on('typing', ({ isTyping, userId, isAdmin }) => {
+    if (socket.isAdmin) {
+      // Admin is typing - notify all users
+      io.emit('userTyping', { isTyping, isAdmin: true });
+    } else {
+      // User is typing - notify admin
+      io.emit('userTyping', { isTyping, userId: socket.id });
+    }
   });
 
   socket.on('disconnect', () => {
