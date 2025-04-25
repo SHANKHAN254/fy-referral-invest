@@ -2,8 +2,6 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const { Client, LocalAuth } = require('whatsapp-web.js');
-const qrcode = require('qrcode');
 
 const app = express();
 const server = http.createServer(app);
@@ -16,93 +14,60 @@ const io = new Server(server, {
 
 app.use(express.json());
 
-// Create a WhatsApp client with LocalAuth strategy
-const client = new Client({
-  authStrategy: new LocalAuth(),
-  puppeteer: {
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
-  }
-});
+// Store active chats and admin status
+const activeChats = new Map();
+let adminOnline = false;
 
-// Socket.io connection
 io.on('connection', (socket) => {
   console.log('Client connected');
-  
-  // If client is ready, let the frontend know
-  if (client.info) {
-    socket.emit('ready', { 
-      name: client.info.pushname, 
-      phone: client.info.wid.user 
+
+  // Handle user registration
+  socket.on('register', (userData) => {
+    activeChats.set(socket.id, {
+      ...userData,
+      messages: [],
+      isAdmin: false
     });
-  }
-  
-  // Listen for pairing code request
-  socket.on('requestPairingCode', async (data) => {
-    try {
-      console.log('Pairing code requested for:', data.phoneNumber);
-      const code = await client.requestPairingCode(data.phoneNumber);
-      socket.emit('pairingCode', { code });
-    } catch (error) {
-      console.error('Error generating pairing code:', error);
-      socket.emit('error', { message: 'Failed to generate pairing code' });
+    socket.emit('registered');
+    io.emit('updateUserList', Array.from(activeChats.values()));
+  });
+
+  // Handle admin login
+  socket.on('adminLogin', () => {
+    socket.isAdmin = true;
+    adminOnline = true;
+    io.emit('adminStatus', { online: true });
+  });
+
+  // Handle messages
+  socket.on('message', (message) => {
+    const user = activeChats.get(socket.id);
+    if (user || socket.isAdmin) {
+      io.emit('message', {
+        text: message.text,
+        isAdmin: socket.isAdmin,
+        userId: message.userId,
+        timestamp: new Date()
+      });
     }
   });
-  
-  // Listen for disconnect
+
+  // Handle typing status
+  socket.on('typing', ({ isTyping, userId }) => {
+    io.emit('userTyping', { isTyping, userId });
+  });
+
   socket.on('disconnect', () => {
-    console.log('Client disconnected');
+    if (socket.isAdmin) {
+      adminOnline = false;
+      io.emit('adminStatus', { online: false });
+    } else {
+      activeChats.delete(socket.id);
+      io.emit('updateUserList', Array.from(activeChats.values()));
+    }
   });
 });
 
-// WhatsApp client events
-client.on('qr', (qr) => {
-  console.log('QR RECEIVED');
-  qrcode.toDataURL(qr, (err, url) => {
-    if (err) return console.log('Error generating QR code:', err);
-    io.emit('qr', { url });
-  });
-});
-
-client.on('ready', () => {
-  console.log('Client is ready!');
-  io.emit('ready', { 
-    name: client.info.pushname, 
-    phone: client.info.wid.user 
-  });
-});
-
-client.on('authenticated', () => {
-  console.log('AUTHENTICATED');
-  io.emit('authenticated');
-});
-
-client.on('auth_failure', (msg) => {
-  console.error('AUTHENTICATION FAILURE', msg);
-  io.emit('auth_failure', { message: msg });
-});
-
-client.on('disconnected', (reason) => {
-  console.log('Client was disconnected:', reason);
-  io.emit('disconnected', { reason });
-});
-
-// Message handling
-client.on('message', async (msg) => {
-  console.log('Message received:', msg.body);
-  
-  // Basic message reply example
-  if (msg.body.toLowerCase() === '!ping') {
-    msg.reply('pong');
-  }
-});
-
-// Initialize the WhatsApp client
-client.initialize().catch(err => {
-  console.error('Error initializing WhatsApp client:', err);
-});
-
-// Start the server
 const PORT = process.env.PORT || 8000;
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
